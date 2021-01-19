@@ -1,6 +1,6 @@
 # Copyright 2021 by Andrey Ignatov. All Rights Reserved.
 
-# The following instructions will show you how to convert a simple TensorFlow U-Net based model to TFLite format
+# The following instructions will show you how to convert a simple Keras U-Net based model to TFLite format
 
 import tensorflow as tf
 from tensorflow import keras
