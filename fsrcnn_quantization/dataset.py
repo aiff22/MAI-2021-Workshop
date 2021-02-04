@@ -69,11 +69,4 @@ def representative_dataset_gen():
     batch_x, _ = div2k[0]
     for x in batch_x:
         x = np.expand_dims(x, 0)
-        print(x.shape)
         yield [x]
-
-def representative_dataset_gen_image_shapes():
-    with h5py.File('datasets/div2k_x4_sample.h5', 'r') as f:
-        lr = f['lr'][0]
-        hr = f['hr'][0]
-        return [1, lr.shape[0], lr.shape[1], 1], [1, hr.shape[0], hr.shape[1], 1]
