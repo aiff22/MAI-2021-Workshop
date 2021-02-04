@@ -8,6 +8,12 @@ Quantization utilizes TensorFlow's post training integer quantization tools (htt
 
 Input shape for the quantized TensorFlow Lite model is [1, 360, 640, 1], output shape is [1, 1080, 1920, 1].
 
+The DIV2K dataset should be organized as follows:
+```
+DIV2K   
+├── DIV2K_train_HR  
+└── DIV2K_train_LR_bicubic  
+```
 1. Python3 pip Requurements  
 h5py  
 numpy  
