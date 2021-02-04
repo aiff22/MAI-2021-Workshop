@@ -6,10 +6,10 @@ import numpy as np
 import cv2
 from tensorflow.keras.layers import Conv2D, Conv2DTranspose, Input, PReLU, ReLU
 from tensorflow.keras.models import Model
-from dataset import TrainDataset, representative_dataset_gen, representative_dataset_gen_image_shapes
+from dataset import DIV2K
 
 
-def build(scale_factor=4, num_channels=1, d=56, s=12, m=4):
+def build(scale_factor=3, num_channels=1, d=56, s=12, m=4):
     """Implements FSRCNN in Keras
     http://mmlab.ie.cuhk.edu.hk/projects/FSRCNN.html
     """
@@ -32,68 +32,69 @@ def build(scale_factor=4, num_channels=1, d=56, s=12, m=4):
     return Model(inputs=inp, outputs=out)
 
 
-def train(model, dataset_path, num_epochs=1, batch_size=32):
-    train_gen = TrainDataset(dataset_path, batch_size=batch_size)
+def train(model, dataset_path, scale_factor=3, num_epochs=1, batch_size=32):
+    train_gen = DIV2K(dataset_path, scale_factor=scale_factor, batch_size=batch_size)
     model.compile(optimizer='adam', loss='mse')
     model.fit(train_gen, epochs=num_epochs, workers=8)
     return model
 
-def quantize(saved_model_path):
+def quantize(saved_model_path, data_path, input_shape, scale_factor):
+    def representative_dataset_gen():
+        div2k = DIV2K(data_path, scale_factor=scale_factor, patch_size=0)
+        for i in range(50):
+            x, _ = div2k[i]
+            # Skip images that are not witin input h,w boundaries
+            if x.shape[0] > input_shape[1] and x.shape[1] > input_shape[2]:
+                # crop to input shape starting for top left corner of image
+                x = x[:input_shape[1], :input_shape[2]]
+                x = np.expand_dims(x, 0)
+                x = np.expand_dims(x, -1)
+                yield [x]
     # Load trained SavedModel
     model = tf.saved_model.load(saved_model_path)
     # Setup fixed input shape
     concrete_func = model.signatures[tf.saved_model.DEFAULT_SERVING_SIGNATURE_DEF_KEY]
-    lr_shape, hr_shape = representative_dataset_gen_image_shapes()
-    concrete_func.inputs[0].set_shape(lr_shape)
+    concrete_func.inputs[0].set_shape(input_shape)
     # Get tf.lite converter instance
     converter = tf.lite.TFLiteConverter.from_concrete_functions([concrete_func])
     # Use full integer operations in quantized model
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
     converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-    # Set input and output dtypes to UINT8
-    converter.inference_input_type = tf.uint8
-    converter.inference_output_type = tf.uint8
+    # Set input and output dtypes to UINT8 (uncomment the following two lines to generate an integer only model)
+    # converter.inference_input_type = tf.uint8
+    # converter.inference_output_type = tf.uint8
     # Provide representative dataset for quantization calibration
     converter.representative_dataset = representative_dataset_gen
     # Convert to 8-bit TensorFlow Lite model
     return converter.convert()
 
-def evaluate(model_file, image_index=0, test_dataset='datasets/div2k_x4_sample.h5'):
+def evaluate(model_file, data_path, image_index=0):
 
     def calc_psnr(y, y_target):
         mse = np.mean((y - y_target) ** 2)
         if mse == 0:
             return 100
-        return 20. * math.log10( 255. / math.sqrt(mse))
+        return 20. * math.log10( 1. / math.sqrt(mse))
 
-    with h5py.File(test_dataset, 'r') as f:
-        lr = f['lr'][image_index]
-        hr = f['hr'][image_index]
-
-    yuv = cv2.cvtColor(lr, cv2.COLOR_BGR2YUV)
-    lr_y, _, _ = cv2.split(yuv)
-    lr_y = np.expand_dims(lr_y, 0)
-    lr_y = np.expand_dims(lr_y, -1)
-
-    if model_file[-7:] == '.tflite':
-        interpreter = tf.lite.Interpreter(model_path=model_file)
-        interpreter.allocate_tensors()
-        input_details = interpreter.get_input_details()
-        output_details = interpreter.get_output_details()
-        interpreter.set_tensor(input_details[0]['index'], lr_y)
-        interpreter.invoke()
-        sr_y = interpreter.get_tensor(output_details[0]['index']).squeeze()
-        sr_y = sr_y.astype(np.float32)
-        mean = output_details[0]['quantization'][1]
-        scale = output_details[0]['quantization'][0]
-        if scale == 0:
-            scale = 1
-        sr_y = (sr_y - mean ) * scale * 255.0
-    else:
-        print('Unsupported model file')
+    interpreter = tf.lite.Interpreter(model_path=model_file)
+    interpreter.allocate_tensors()
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+    input_shape = input_details[0]['shape']
+    output_shape = output_details[0]['shape']
+    div2k = DIV2K(data_path, patch_size=0)
+    # Get lr, hr image pair
+    lr, hr = div2k[image_index]
+    # Check if image size can be used for inference
+    if lr.shape[0] < input_shape[1] or lr.shape[1] < input_shape[2]:
+        print(f'Eval image {image_index} has invalid dimensions. Expecting h >= {input_shape[1]} and w >= {input_shape[2]}.')
         raise ValueError
-
-    sr_y = np.clip(np.round(sr_y), 0, 255).astype(np.uint8)
-    yuv = cv2.cvtColor(hr, cv2.COLOR_BGR2YUV)
-    hr_y, _, _ = cv2.split(yuv)
-    return sr_y, calc_psnr(sr_y, hr_y)
+    # Crop lr, hr images to match fixed shapes of the tensorflow lite model
+    lr = lr[:input_shape[1], :input_shape[2]]
+    lr = np.expand_dims(lr, 0)
+    lr = np.expand_dims(lr, -1)
+    interpreter.set_tensor(input_details[0]['index'], lr)
+    interpreter.invoke()
+    sr = interpreter.get_tensor(output_details[0]['index']).squeeze()
+    hr = hr[:output_shape[1], :output_shape[2]]
+    return np.clip(np.round(sr * 255.), 0, 255).astype(np.uint8), np.clip(np.round(hr * 255.), 0, 255).astype(np.uint8), calc_psnr(sr, hr)
