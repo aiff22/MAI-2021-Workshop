@@ -12,6 +12,8 @@ np.random.seed(42)
 
 IMAGE_WIDTH, IMAGE_HEIGHT, DEPTH_CHANNELS = 640, 480, 1
 
+# Modify the model training parameters below:
+
 BATCH_SIZE = 32
 LEARNING_RATE = 2e-5
 NUM_TRAIN_ITERATIONS = 100000
@@ -22,7 +24,6 @@ VAL_DIR = "challenge_data/validation/"
 
 NUM_TRAIN_IMAGES = 1600
 NUM_VAL_IMAGES = len(os.listdir(VAL_DIR + "rgb/"))
-print(NUM_VAL_IMAGES)
 NUM_VAL_BATCHES = int(NUM_VAL_IMAGES / BATCH_SIZE)
 
 
