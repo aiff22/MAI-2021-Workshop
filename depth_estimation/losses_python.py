@@ -19,7 +19,7 @@ def rmse(img, target):
     target[target < 1] = 1
     mask = np.asarray(target > 1, dtype=int)
 
-    diff = (target - img) * mask / 1000.0   # mapping the distance from meters to millimeters
+    diff = (target - img) * mask / 1000.0   # mapping the distance from millimeters to meters
     num_pixels = float(np.sum(mask > 0))
 
     return np.sqrt(np.sum(np.square(diff)) / num_pixels)

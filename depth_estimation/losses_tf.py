@@ -5,7 +5,7 @@ import tensorflow as tf
 
 def rmse(img, target, mask, num_pixels):
 
-    diff = tf.math.multiply(img - target, mask) / 1000.0    # mapping the distance from meters to millimeters
+    diff = tf.math.multiply(img - target, mask) / 1000.0    # mapping the distance from millimeters to meters
 
     loss_mse = tf.reduce_sum(tf.pow(diff, 2)) / num_pixels
     loss_rmse = tf.sqrt(loss_mse)
